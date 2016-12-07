@@ -1,12 +1,7 @@
-function reg_projector(camInfo,stp_sz,stp_t,r,edit_time_remaining)
+function projector_testFit(camInfo,stp_sz,stp_t,r)
 
-% This function registers the projector to the camera by rastering the
-% projector's space with a circle of radius (r), taking steps of size (stp_sz) in
-% pixels with a pause of stp_t in between steps. The camera automatically detects the location of the spot and
-% uses camera and projector coordinate pairs for the spot to create
-% scattered interpolants of the space in both x (Fx) and y (Fy). The 
-% function outputs these interpolants to a file that is subsequently used
-% to target specific points in the camera's field of view.
+% This function displays and records the discrepancy between the current
+% projector fit and the camera
 
 %% Initialize the camera with settings tailored to imaging the projector
 
@@ -25,22 +20,37 @@ pause(2);
 ref=peekdata(vid,1);
 ref=ref(:,:,2);
 imshow(ref-ref);
-text(size(ref,2)*0.75,size(ref,1)*0.05,'Registration in progress','fontsize',18,'Color',[1 0 0]);
+text(size(ref,2)*0.75,size(ref,1)*0.05,'Registration test in progress','fontsize',18,'Color',[1 0 0]);
 
-% Save the camera resolution that the registration was performed at
-[reg_yPixels,reg_xPixels] = size(ref);
+%% Load the projector fit
+
+load('C:\Users\debivortlab\Documents\MATLAB\projectorTracker\projector_fit.mat');
+[cam_yPixels,cam_xPixels]=size(ref);
+
+if cam_xPixels ~= reg_data.cam_xPixels || cam_yPixels ~= reg_data.cam_yPixels
+    x_scale = cam_xPixels/reg_data.cam_xPixels;
+    y_scale = cam_yPixels/reg_data.cam_yPixels;
+    cam_x = reg_data.cam_xCoords*x_scale;
+    cam_y = reg_data.cam_yCoords*y_scale;
+    
+    % Create scattered interpolant for current camera resolution
+    Fx=scatteredInterpolant(cam_x,cam_y,reg_data.proj_xCoords);
+    Fy=scatteredInterpolant(cam_x,cam_y,reg_data.proj_yCoords);
+    
+else
+    Fx = reg_data.Fx;
+    Fy = reg_data.Fy;
+end
 
 %% Estimate camera frame rate
 
 frameRate=estimateFrameRate(vid);
 stp_t = stp_t*60/frameRate;
 
-%% Set registration parameters
+%% Set test parameters
 
-xPixels=scrProp.windowRect(3);
-yPixels=scrProp.windowRect(4);
-x_stp=floor(xPixels/stp_sz);        % num steps in x
-y_stp=floor(yPixels/stp_sz);        % num steps in y
+x_stp=floor(cam_xPixels/stp_sz);        % num steps in x
+y_stp=floor(cam_yPixels/stp_sz);        % num steps in y
 white=[1 1 1];                      % color of the spot
 im_thresh=30;                       % image threshold
 subim_sz=10;                        % Radius of the extracted image ROI
@@ -67,7 +77,7 @@ for i=1:x_stp
         tic
         
         % Draw circle with projector at pixel coords x,y
-        scrProp=drawCircle(x,y,r,white,scrProp);     
+        scrProp=drawCircle(Fx(x,y),Fy(x,y),r,white,scrProp);     
         pause(stp_t);
         
         % Image spot with cam
@@ -86,7 +96,7 @@ for i=1:x_stp
             cenDat=round([props.Centroid]);
             yi=cenDat(2)-subim_sz:cenDat(2)+subim_sz;
             xi=cenDat(1)-subim_sz:cenDat(1)+subim_sz;
-            if max(yi)<reg_yPixels+1 && min(yi)>0 && max(xi)<reg_xPixels+1 && min(xi)>1
+            if max(yi)<cam_yPixels+1 && min(yi)>0 && max(xi)<cam_xPixels+1 && min(xi)>1
             subim=im(yi,xi);
             subim=double(subim);
             subim=subim./sum(sum(subim));
@@ -100,7 +110,9 @@ for i=1:x_stp
             imagesc(im>im_thresh);
             hold on
             plot(cam_x(j,i),cam_y(j,i),'ro');
-            text(cam_x(j,i),cam_y(j,i)+20,[num2str(x) ', ' num2str(y)],'fontsize',18,'Color',[1 0 0]);
+            text(cam_x(j,i),cam_y(j,i)+10,[num2str(x) ', ' num2str(y)],'fontsize',12,'Color',[1 0 0]);
+            text(cam_x(j,i),cam_y(j,i)+20,[num2str(cam_x(j,i)) ', ' num2str(cam_y(j,i))],'fontsize',12,'Color',[0 0 1]);
+            text(cam_x(j,i),cam_y(j,i)+30,[num2str(cam_x(j,i)-x) ', ' num2str(cam_y(j,i)-y)],'fontsize',12,'Color',[1 1 0]);
             text(size(ref,2)*0.75,size(ref,1)*0.05,'Registration in progress','fontsize',18,'Color',[1 0 0]);
             hold off
             set(gca,'Xtick',[],'Ytick',[]);
@@ -165,19 +177,4 @@ proj_x=proj_x(include);
 proj_y=proj_y(include);
 cam_x=cam_x(include);
 cam_y=cam_y(include);
-
-% Create scattered interpolant and save to HDD
-Fx=scatteredInterpolant(cam_x,cam_y,proj_x);
-Fy=scatteredInterpolant(cam_x,cam_y,proj_y);
-
-reg_data.Fx = Fx;
-reg_data.Fy = Fy;
-reg_data.cam_xPixels = reg_xPixels;
-reg_data.cam_yPixels = reg_yPixels;
-reg_data.cam_xCoords = cam_x;
-reg_data.cam_yCoords = cam_y;
-reg_data.proj_xCoords = proj_x;
-reg_data.proj_yCoords = proj_y;
-
-save('C:\Users\debivortlab\Documents\MATLAB\projectorTracker\projector_fit.mat','reg_data');
 
